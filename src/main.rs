@@ -190,6 +190,132 @@ async fn install_package(package_name: &str, verbose: bool) -> Result<(), Box<dy
     Ok(())
 }
 
+async fn uninstall_package(package_name: &str) -> std::io::Result<()> {
+    let beer = "🍺";
+    let package_dir = format!("/opt/beerpm/Packages/{}", package_name);
+    let formulae_dir = format!("/opt/beerpm/Formulaes/{}", package_name);
+    let mut removed = false;
+    if Path::new(&package_dir).exists() {
+        println!("{} {} Removing package directory: {}", beer, "[UNINSTALL]".bold().red(), package_dir.magenta());
+        fs::remove_dir_all(&package_dir)?;
+        removed = true;
+    }
+    if Path::new(&formulae_dir).exists() {
+        println!("{} {} Removing formula: {}", beer, "[UNINSTALL]".bold().red(), formulae_dir.magenta());
+        fs::remove_dir_all(&formulae_dir)?;
+        removed = true;
+    }
+    if removed {
+        println!("{} {} Package '{}' uninstalled.", beer.green(), "[DONE]".bold().green(), package_name.bold().yellow());
+    } else {
+        println!("{} {} Package '{}' not found.", beer.red(), "[NOT FOUND]".bold().red(), package_name.bold().yellow());
+    }
+    Ok(())
+}
+
+fn list_packages() {
+    let beer = "🍺";
+    let packages_path = "/opt/beerpm/Packages";
+    if Path::new(packages_path).exists() {
+        match fs::read_dir(packages_path) {
+            Ok(entries) => {
+                let packages: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+                println!("{} Installed packages ({}):", beer, packages.len());
+                for p in &packages {
+                    if let Some(name) = p.file_name().to_str() {
+                        println!("  - {}", name.green());
+                    }
+                }
+            }
+            Err(e) => println!("{} Could not read Packages dir: {}", beer.red(), e),
+        }
+    } else {
+        println!("{} No packages installed.", beer.yellow());
+    }
+}
+
+async fn update_package(package_name: &str, verbose: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let beer = "🍺";
+    let clone_dir = format!("/opt/beerpm/Packages/{}", package_name);
+    if !Path::new(&clone_dir).exists() {
+        println!("{} {} Package '{}' is not installed.", beer.red(), "[NOT FOUND]".bold().red(), package_name.bold().yellow());
+        return Ok(());
+    }
+    println!("{} {} Updating package '{}'...", beer, "[UPDATE]".bold().blue(), package_name.bold().yellow());
+    // git pull
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&clone_dir)
+        .arg("pull")
+        .status()
+        .await?;
+    if !status.success() {
+        println!("{} {} Failed to update repository", beer.red(), "[FAIL]".bold().red());
+        return Ok(());
+    }
+    // Re-run install commands
+    let formula_path = format!("/opt/beerpm/Formulaes/{}.formula.toml", package_name);
+    if Path::new(&formula_path).exists() {
+        let formula_content = fs::read_to_string(&formula_path)?;
+        match toml::from_str::<Package>(&formula_content) {
+            Ok(package) => {
+                let total_cmds = package.formula.install_cmds.len() as u64;
+                let pb = ProgressBar::new(total_cmds);
+                pb.set_style(ProgressStyle::default_bar()
+                    .template("{bar:40.cyan/blue} {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("🍺=>-"));
+                for cmd in &package.formula.install_cmds {
+                    pb.set_message(format!("Running: {}", cmd));
+                    println!("{} {} Running install command: {}", beer, "[CMD]".bold().yellow(), cmd.bold().white());
+                    let mut parts = cmd.split_whitespace();
+                    if let Some(program) = parts.next() {
+                        let args: Vec<&str> = parts.collect();
+                        let mut command = Command::new(program);
+                        command.args(&args).current_dir(&clone_dir);
+                        if !verbose {
+                            command.stdout(std::process::Stdio::null());
+                            command.stderr(std::process::Stdio::null());
+                        }
+                        let status = command.status().await?;
+                        if !status.success() {
+                            println!("{} {} Command failed: {}", beer.red(), "[FAIL]".bold().red(), cmd.red());
+                        }
+                    }
+                    pb.inc(1);
+                }
+                pb.finish_with_message("All update commands finished!");
+                println!("{} {} Done!", beer.green(), "[DONE]".bold().green());
+            }
+            Err(e) => {
+                println!("{} {} Could not parse package TOML: {}", beer.red(), "[FAIL]".bold().red(), e);
+            }
+        }
+    } else {
+        println!("{} Formula for '{}' not found.", beer.red(), package_name.bold().yellow());
+    }
+    Ok(())
+}
+
+fn print_package_info(package_name: &str) {
+    let beer = "🍺";
+    let formula_path = format!("/opt/beerpm/Formulaes/{}.formula.toml", package_name);
+    let package_dir = format!("/opt/beerpm/Packages/{}", package_name);
+    if Path::new(&formula_path).exists() {
+        println!("{} Info for package '{}':", beer.cyan(), package_name.bold().yellow());
+        if let Ok(formula_content) = fs::read_to_string(&formula_path) {
+            println!("{} formula.toml:\n{}", beer, formula_content.bright_white());
+        }
+    } else {
+        println!("{} Formula for '{}' not found.", beer.red(), package_name.bold().yellow());
+    }
+    if Path::new(&package_dir).exists() {
+        println!("{} Installed at: {}", beer, package_dir.magenta());
+    } else {
+        println!("{} Package directory not found.", beer.yellow());
+    }
+}
+
 fn print_info() {
     let beer = "🍺";
     println!("{} {} BeerPM Info:", beer.cyan(), "[INFO]".bold().cyan());
@@ -244,15 +370,23 @@ fn print_help() {
     println!("USAGE:");
     println!("  beer install <package> [--verbose]   Install a package from the formulaes repo");
     println!("  beer find <package>                  Search for a package formula");
+    println!("  beer uninstall <package>             Uninstall a package");
+    println!("  beer list                            List installed packages");
+    println!("  beer update <package> [--verbose]    Update a package");
+    println!("  beer info <package>                  Show info about a package");
     println!("  beer --create-package <dir>           Create a new beer_package.toml in <dir>");
     println!("  beer info                            Show BeerPM installation info");
     println!("  beer help | --help | -h               Show this help message");
     println!("\nFLAGS:");
-    println!("  --verbose                             Show output of install commands");
+    println!("  --verbose                             Show output of install/update commands");
     println!("\nEXAMPLES:");
     println!("  beer install cmake");
     println!("  beer install llvm --verbose");
     println!("  beer find python3");
+    println!("  beer uninstall cmake");
+    println!("  beer list");
+    println!("  beer update cmake");
+    println!("  beer info cmake");
     println!("  beer info");
 }
 
@@ -277,6 +411,21 @@ async fn main() {
         if let Err(e) = find_package(package_name).await {
             eprintln!("Package not found. {}", e);
         }
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "uninstall" {
+        let package_name = &filtered_args[2];
+        if let Err(e) = uninstall_package(package_name).await {
+            eprintln!("Error uninstalling package: {}", e);
+        }
+    } else if filtered_args.len() >= 2 && filtered_args[1] == "list" {
+        list_packages();
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "update" {
+        let package_name = &filtered_args[2];
+        if let Err(e) = update_package(package_name, verbose).await {
+            eprintln!("Error updating package: {}", e);
+        }
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "info" {
+        let package_name = &filtered_args[2];
+        print_package_info(package_name);
     } else if filtered_args.len() >= 2 && filtered_args[1] == "info" {
         print_info();
     } else {
