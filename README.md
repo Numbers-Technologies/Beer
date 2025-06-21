@@ -1,5 +1,7 @@
 
-#  BeerPM
+<h1 align="center">
+  🍺 BeerPM
+</h1>
 
 <p align="center">
   <a href="https://github.com/Numbers-Technologies/Beer/actions">
@@ -19,19 +21,13 @@
 ---
 
 🍻 **BeerPM** — простой и стильный пакетный менеджер для вашего Linux/macOS!
+<p align="center">
+  <img src="./screenshot.png" alt="BeerPM Terminal Demo" width="600"/>
+</p>
 
----
 
-## ✨ Возможности
 
-<table>
-  <tr>
-    <td><img src="https://raw.githubusercontent.com/Numbers-Technologies/Beer/main/assets/svg/install.svg" width="24"/> Установка пакетов</td>
-    <td><img src="https://raw.githubusercontent.com/Numbers-Technologies/Beer/main/assets/svg/update.svg" width="24"/> Обновление пакетов</td>
-    <td><img src="https://raw.githubusercontent.com/Numbers-Technologies/Beer/main/assets/svg/search.svg" width="24"/> Поиск пакетов</td>
-    <td><img src="https://raw.githubusercontent.com/Numbers-Technologies/Beer/main/assets/svg/list.svg" width="24"/> Список установленных</td>
-  </tr>
-</table>
+
 
 ---
 
@@ -57,13 +53,7 @@ sudo /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Numbers-Techno
 | `beer --create-package <dir>`             | Создать шаблон beer_package.toml          |
 | `beer help`                               | Показать справку                         |
 
----
 
-## 🖥️ Скриншот терминала
-
-<p align="center">
-  <img src="./screenshot.png" alt="BeerPM Terminal Demo" width="600"/>
-</p>
 
 ---
 
