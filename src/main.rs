@@ -238,13 +238,33 @@ fn print_info() {
     }
 }
 
+fn print_help() {
+    let beer = "🍺";
+    println!("{} BeerPM - Yet another package manager for your system\n", beer.yellow());
+    println!("USAGE:");
+    println!("  beer install <package> [--verbose]   Install a package from the formulaes repo");
+    println!("  beer find <package>                  Search for a package formula");
+    println!("  beer --create-package <dir>           Create a new beer_package.toml in <dir>");
+    println!("  beer info                            Show BeerPM installation info");
+    println!("  beer help | --help | -h               Show this help message");
+    println!("\nFLAGS:");
+    println!("  --verbose                             Show output of install commands");
+    println!("\nEXAMPLES:");
+    println!("  beer install cmake");
+    println!("  beer install llvm --verbose");
+    println!("  beer find python3");
+    println!("  beer info");
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
     let verbose = args.contains(&"--verbose".to_string());
     let filtered_args: Vec<String> = args.iter().filter(|a| *a != "--verbose").cloned().collect();
     
-    if filtered_args.len() >= 3 && filtered_args[1] == "--create-package" {
+    if filtered_args.len() < 2 || ["help", "--help", "-h"].contains(&filtered_args[1].as_str()) {
+        print_help();
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "--create-package" {
         let directory = &filtered_args[2];
         create_package_file(directory);
     } else if filtered_args.len() >= 3 && filtered_args[1] == "install" {
@@ -260,11 +280,7 @@ async fn main() {
     } else if filtered_args.len() >= 2 && filtered_args[1] == "info" {
         print_info();
     } else {
-        let bsd_book_formula = Formula::new(vec!["make".to_string()]);
-        let package = Package::new("BSDBook", "github.com/TwelveFacedJanus/BSDBook.git", vec![], bsd_book_formula);
-        println!("PACKAGE: {:#?}", package);
-        package.install_dependencies();
-        package.run_formula();
+        print_help();
     }
 }
 
