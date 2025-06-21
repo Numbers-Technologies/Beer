@@ -6,6 +6,7 @@ use tokio::process::Command;
 use indicatif::{ProgressBar, ProgressStyle};
 use colored::*;
 use std::time::Duration;
+use std::io::Read;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Formula
@@ -126,7 +127,7 @@ async fn install_package(package_name: &str, verbose: bool) -> Result<(), Box<dy
             Ok(package) => {
                 println!("{} {} Parsed package:", beer, "[PARSE]".bold().blue());
                 println!("{:#?}", package);
-                let clone_dir = format!("/Users/twelvefaced/Documents/BeerFormulaes/{}", package_name);
+                let clone_dir = format!("/opt/beerpm/Packages/{}", package_name);
                 if Path::new(&clone_dir).exists() {
                     println!("{} {} Removing existing directory: {}", beer, "[CLEAN]".bold().yellow(), clone_dir.magenta());
                     let _ = fs::remove_dir_all(&clone_dir);
@@ -189,6 +190,54 @@ async fn install_package(package_name: &str, verbose: bool) -> Result<(), Box<dy
     Ok(())
 }
 
+fn print_info() {
+    let beer = "🍺";
+    println!("{} {} BeerPM Info:", beer.cyan(), "[INFO]".bold().cyan());
+
+    // Read info.toml
+    let info_path = "/opt/beerpm/info.toml";
+    if Path::new(info_path).exists() {
+        let mut info = String::new();
+        if let Ok(mut f) = fs::File::open(info_path) {
+            let _ = f.read_to_string(&mut info);
+            println!("{} info.toml:
+{}", beer, info.bright_white());
+        }
+    } else {
+        println!("{} info.toml not found.", beer.red());
+    }
+
+    // List installed formulae
+    let formulaes_path = "/opt/beerpm/Formulaes";
+    if Path::new(formulaes_path).exists() {
+        match fs::read_dir(formulaes_path) {
+            Ok(entries) => {
+                let formulaes: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+                println!("{} Installed formulae ({}):", beer, formulaes.len());
+                for f in &formulaes {
+                    if let Some(name) = f.file_name().to_str() {
+                        println!("  - {}", name.green());
+                    }
+                }
+            }
+            Err(e) => println!("{} Could not read Formulaes dir: {}", beer.red(), e),
+        }
+    } else {
+        println!("{} No formulaes installed.", beer.yellow());
+    }
+
+    // Disk usage for Packages
+    let packages_path = "/opt/beerpm/Packages";
+    if Path::new(packages_path).exists() {
+        if let Ok(output) = std::process::Command::new("du").arg("-sh").arg(packages_path).output() {
+            if output.status.success() {
+                let usage = String::from_utf8_lossy(&output.stdout);
+                println!("{} Packages disk usage: {}", beer, usage.trim().magenta());
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
@@ -208,6 +257,8 @@ async fn main() {
         if let Err(e) = find_package(package_name).await {
             eprintln!("Package not found. {}", e);
         }
+    } else if filtered_args.len() >= 2 && filtered_args[1] == "info" {
+        print_info();
     } else {
         let bsd_book_formula = Formula::new(vec!["make".to_string()]);
         let package = Package::new("BSDBook", "github.com/TwelveFacedJanus/BSDBook.git", vec![], bsd_book_formula);
