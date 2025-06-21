@@ -27,7 +27,7 @@ else
 fi
 
 # 2. Build the binary
-cd "$INSTALL_DIR/beer-src/Beer"
+cd "$INSTALL_DIR/beer-src"
 echo "Building BeerPM..."
 cargo build --release
 
