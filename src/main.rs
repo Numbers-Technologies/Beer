@@ -3,6 +3,9 @@ use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+use indicatif::{ProgressBar, ProgressStyle};
+use colored::*;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Formula
@@ -77,66 +80,109 @@ impl IPackage for Package
     }
 }
 
-async fn install_package(package_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn find_package(package_name: &str) -> Result<(), Box<dyn std::error::Error>>
+{
     let formula_url = format!(
         "https://raw.githubusercontent.com/Numbers-Technologies/beer-formulaes/main/{}.formula.toml",
         package_name
     );
-    
-    println!("Searching for formula: {}", formula_url);
-    
+    let beer = "🍺";
+    println!("{} {} Searching for formula: {}", beer.yellow(), "[FIND]".bold().green(), formula_url.cyan());
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_message("Contacting GitHub...");
     let response = reqwest::get(&formula_url).await?;
+    pb.finish_and_clear();
+
+    if response.status().is_success() {
+        let formula_content = response.text().await?;
+        println!("{} {} Found formula for package '{}':", beer.green(), "[OK]".bold().green(), package_name.bold().yellow());
+        println!("{}", formula_content.bright_white());
+    } else {
+        println!("{} {} Formula for package '{}' not found.", beer.red(), "[NOT FOUND]".bold().red(), package_name.bold().yellow());
+    }
+    Ok(())
+}
+
+async fn install_package(package_name: &str, verbose: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let formula_url = format!(
+        "https://raw.githubusercontent.com/Numbers-Technologies/beer-formulaes/main/{}.formula.toml",
+        package_name
+    );
+    let beer = "🍺";
+    println!("{} {} Searching for formula: {}", beer.yellow(), "[INSTALL]".bold().green(), formula_url.cyan());
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_message("Contacting GitHub...");
+    let response = reqwest::get(&formula_url).await?;
+    pb.finish_and_clear();
     
     if response.status().is_success() {
         let formula_content = response.text().await?;
-        println!("Found formula for package '{}':", package_name);
-        println!("{}", formula_content);
-        
+        println!("{} {} Found formula for package '{}':", beer.green(), "[OK]".bold().green(), package_name.bold().yellow());
         match toml::from_str::<Package>(&formula_content) {
             Ok(package) => {
-                println!("\nParsed package:");
+                println!("{} {} Parsed package:", beer, "[PARSE]".bold().blue());
                 println!("{:#?}", package);
-
-                let clone_dir = format!("/tmp/{}", package_name);
+                let clone_dir = format!("/Users/twelvefaced/Documents/BeerFormulaes/{}", package_name);
                 if Path::new(&clone_dir).exists() {
-                    println!("Removing existing directory: {}", clone_dir);
+                    println!("{} {} Removing existing directory: {}", beer, "[CLEAN]".bold().yellow(), clone_dir.magenta());
                     let _ = fs::remove_dir_all(&clone_dir);
                 }
-                println!("Cloning {} into {}...", package.git_repository, clone_dir);
+                println!("{} {} Cloning {} into {}...", beer, "[GIT]".bold().cyan(), package.git_repository.cyan(), clone_dir.magenta());
+                let pb = ProgressBar::new_spinner();
+                pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
+                pb.enable_steady_tick(Duration::from_millis(100));
+                pb.set_message("Cloning repository...");
                 let status = Command::new("git")
                     .arg("clone")
                     .arg(&package.git_repository)
                     .arg(&clone_dir)
                     .status()
                     .await?;
+                pb.finish_and_clear();
                 if !status.success() {
-                    println!("Failed to clone repository");
+                    println!("{} {} Failed to clone repository", beer.red(), "[FAIL]".bold().red());
                     return Ok(());
                 }
+                let total_cmds = package.formula.install_cmds.len() as u64;
+                let pb = ProgressBar::new(total_cmds);
+                pb.set_style(ProgressStyle::default_bar()
+                    .template("{bar:40.cyan/blue} {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("🍺=>-"));
                 for cmd in &package.formula.install_cmds {
-                    println!("Running install command: {}", cmd);
+                    pb.set_message(format!("Running: {}", cmd));
+                    println!("{} {} Running install command: {}", beer, "[CMD]".bold().yellow(), cmd.bold().white());
                     let mut parts = cmd.split_whitespace();
                     if let Some(program) = parts.next() {
                         let args: Vec<&str> = parts.collect();
-                        let status = Command::new(program)
-                            .args(&args)
-                            .current_dir(&clone_dir)
-                            .status()
-                            .await?;
+                        let mut command = Command::new(program);
+                        command.args(&args).current_dir(&clone_dir);
+                        if !verbose {
+                            command.stdout(std::process::Stdio::null());
+                            command.stderr(std::process::Stdio::null());
+                        }
+                        let status = command.status().await?;
                         if !status.success() {
-                            println!("Command failed: {}", cmd);
+                            println!("{} {} Command failed: {}", beer.red(), "[FAIL]".bold().red(), cmd.red());
                         }
                     }
+                    pb.inc(1);
                 }
+                pb.finish_with_message("All install commands finished!");
+                println!("{} {} Done!", beer.green(), "[DONE]".bold().green());
             }
             Err(e) => {
-                println!("Warning: Could not parse package TOML: {}", e);
+                println!("{} {} Could not parse package TOML: {}", beer.red(), "[FAIL]".bold().red(), e);
                 println!("Raw content:");
                 println!("{}", formula_content);
             }
         }
     } else {
-        println!("Package '{}' not found in beer-formulaes repository", package_name);
+        println!("{} {} Package '{}' not found in beer-formulaes repository", beer.red(), "[NOT FOUND]".bold().red(), package_name.bold().yellow());
         println!("Available packages can be found at: https://github.com/Numbers-Technologies/beer-formulaes");
     }
     
@@ -146,14 +192,21 @@ async fn install_package(package_name: &str) -> Result<(), Box<dyn std::error::E
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
+    let verbose = args.contains(&"--verbose".to_string());
+    let filtered_args: Vec<String> = args.iter().filter(|a| *a != "--verbose").cloned().collect();
     
-    if args.len() >= 3 && args[1] == "--create-package" {
-        let directory = &args[2];
+    if filtered_args.len() >= 3 && filtered_args[1] == "--create-package" {
+        let directory = &filtered_args[2];
         create_package_file(directory);
-    } else if args.len() >= 3 && args[1] == "install" {
-        let package_name = &args[2];
-        if let Err(e) = install_package(package_name).await {
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "install" {
+        let package_name = &filtered_args[2];
+        if let Err(e) = install_package(package_name, verbose).await {
             eprintln!("Error installing package: {}", e);
+        }
+    } else if filtered_args.len() >= 3 && filtered_args[1] == "find" {
+        let package_name = &filtered_args[2];
+        if let Err(e) = find_package(package_name).await {
+            eprintln!("Package not found. {}", e);
         }
     } else {
         let bsd_book_formula = Formula::new(vec!["make".to_string()]);
